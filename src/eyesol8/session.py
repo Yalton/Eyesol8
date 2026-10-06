@@ -23,7 +23,6 @@ from pathlib import Path
 from eyesol8 import capture
 from eyesol8.adapter import LISTENING_RE, PORT_ENV, TOKEN_ENV, AdapterClient, new_token
 from eyesol8.backends import Backend, MissingDependencyError, get_backend
-from eyesol8.input import InputDevice
 
 DEFAULT_LOG_LINES = 10_000
 DEFAULT_IDLE_TIMEOUT = 30 * 60
@@ -34,8 +33,8 @@ _SHIM = r"""
 dir="$1"; shift
 "$@" > "$dir/output" 2>&1 &
 child=$!
-printf 'DISPLAY=%s\nGAMESCOPE_WAYLAND_DISPLAY=%s\nPID=%s\n' \
-    "$DISPLAY" "$GAMESCOPE_WAYLAND_DISPLAY" "$child" > "$dir/env.tmp"
+printf 'DISPLAY=%s\nGAMESCOPE_WAYLAND_DISPLAY=%s\nWAYLAND_DISPLAY=%s\nPID=%s\n' \
+    "$DISPLAY" "$GAMESCOPE_WAYLAND_DISPLAY" "$WAYLAND_DISPLAY" "$child" > "$dir/env.tmp"
 mv "$dir/env.tmp" "$dir/env"
 wait "$child"
 echo $? > "$dir/exit"
@@ -121,7 +120,7 @@ class Session:
         self._child_pid: int | None = None
         self._exit_code: int | None = None
         self._stopped = False
-        self._input_device: InputDevice | None = None
+        self._input_device = None
         self._input_lock = threading.Lock()
         self._init_log_buffer(log_lines)
 
@@ -306,7 +305,7 @@ class Session:
         self.touch()
         with self._input_lock:
             if self._input_device is None:
-                self._input_device = InputDevice(self.display)
+                self._input_device = self.backend.input_device(self._display_values)
             return self._input_device.apply(actions)
 
     # --- lifecycle --------------------------------------------------------

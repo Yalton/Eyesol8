@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from eyesol8.backends.base import Backend, BackendError, MissingDependencyError
 from eyesol8.backends.gamescope import GamescopeBackend
+from eyesol8.backends.wlroots import WlrootsBackend
 from eyesol8.backends.xvfb import XvfbBackend
 
 BACKENDS: dict[str, type[Backend]] = {
     "gamescope": GamescopeBackend,
     "xvfb": XvfbBackend,
+    "wlroots": WlrootsBackend,
 }
 
 

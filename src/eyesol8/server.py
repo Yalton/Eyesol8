@@ -75,8 +75,10 @@ def display_start(
 ) -> dict[str, Any]:
     """Start a program in its own headless display.
 
-    ``backend`` is "gamescope" (default, needs a GPU) or "xvfb" (software
-    rendering, no GPU; Godot needs --rendering-driver opengl3 there).
+    ``backend`` is "gamescope" (default, needs a GPU), "xvfb" (software
+    rendering, no GPU; Godot needs --rendering-driver opengl3 there) or
+    "wlroots" (headless cage for Wayland-only apps such as GTK4; fixed at
+    1280x720).
 
     Optionally waits before returning: ``ready_frame`` until the program has
     drawn its first frame, then ``ready_seconds``, then until a log line

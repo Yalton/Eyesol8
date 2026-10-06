@@ -22,13 +22,26 @@ Design doc: https://claude.ai/code/artifact/6a92e49f-d9e5-46ce-a4a5-87675ff655a6
   llvmpipe), so a Godot game needs `--rendering-driver opengl3`. Screenshots
   read the X root window directly, which works because nothing composites.
   A screenshot taken before the program draws is black, not delayed.
-- Input is XTEST (python-xlib) on the session's `DISPLAY`, for every backend.
+- The `wlroots` backend (`backend="wlroots"`) runs the program in a headless
+  [cage](https://github.com/cage-kiosk/cage) compositor, for Wayland-native
+  apps (GTK4, Qt 6) that will not run under Xwayland. It sets `GDK_BACKEND`,
+  `QT_QPA_PLATFORM` and `SDL_VIDEODRIVER` to Wayland and gives cage a private
+  `XDG_RUNTIME_DIR`. The display is fixed at 1280x720 (cage fills it with the
+  app). Screenshots use `grim`, keys and text use `wtype`, and the mouse uses
+  a small built-in Wayland client that keeps one virtual pointer and keyboard
+  connected for the whole session; tools that connect per action make the
+  compositor drop and re-add the seat's pointer, and the app then ignores the
+  next click.
+- Input on the `gamescope` and `xvfb` backends is XTEST (python-xlib) on the
+  session's `DISPLAY`.
 
 ## Requirements
 
 - Linux, `gamescope` (with `gamescopectl`) for the default backend
 - `Xvfb` for the `xvfb` backend (Fedora: `xorg-x11-server-Xvfb`, Debian/Ubuntu:
   `xvfb`); its tests are skipped when it is missing
+- `cage`, `grim` and `wtype` for the `wlroots` backend; its tests also need the
+  system `python3` with PyGObject and GTK 4, and are skipped otherwise
 - Python 3.12+, `uv`
 - Godot 4 on `PATH` as `godot` for the integration tests
 
