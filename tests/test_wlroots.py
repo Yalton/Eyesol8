@@ -78,9 +78,27 @@ def test_gtk4_drag_scroll_and_validation(gtk):
 
 
 @needs_wlroots
-def test_wlroots_rejects_other_sizes(no_leaks):
-    with pytest.raises(ValueError, match="1280x720"):
-        Session.start(["true"], backend="wlroots", width=640, height=360)
+def test_wlroots_custom_size(no_leaks):
+    s = Session.start(["/usr/bin/python3", str(GTK_APP)], backend="wlroots", width=640, height=360)
+    try:
+        s.wait_for_log(r"GTK ready on wayland-", timeout=15)
+        img = wait_for_color(s, (255, 0, 0))
+        assert img.size == (640, 360)
+        assert img.getpixel((635, 355)) == (255, 0, 0)
+
+        _, cursor = s.logs()
+        assert s.input([{"click": [100, 100]}, {"click": [600, 340]}]) == 2
+        s.wait_for_log(r"CLICK \(600\.0, 340\.0\)", timeout=5, since=cursor)
+        assert "CLICK (100.0, 100.0) button 1" in s.logs(since=cursor)[0]
+        wait_for_color(s, (0, 255, 0))
+    finally:
+        s.stop()
+
+
+@needs_wlroots
+def test_wlroots_rejects_bad_size(no_leaks):
+    with pytest.raises(ValueError, match="positive"):
+        Session.start(["true"], backend="wlroots", width=0, height=360)
 
 
 @needs_wlroots

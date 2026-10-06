@@ -77,8 +77,7 @@ def display_start(
 
     ``backend`` is "gamescope" (default, needs a GPU), "xvfb" (software
     rendering, no GPU; Godot needs --rendering-driver opengl3 there) or
-    "wlroots" (headless cage for Wayland-only apps such as GTK4; fixed at
-    1280x720).
+    "wlroots" (headless cage for Wayland-only apps such as GTK4).
 
     Optionally waits before returning: ``ready_frame`` until the program has
     drawn its first frame, then ``ready_seconds``, then until a log line

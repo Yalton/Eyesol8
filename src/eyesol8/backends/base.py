@@ -68,6 +68,9 @@ class Backend(ABC):
     def screenshot(self, values: dict[str, str], timeout: float) -> bytes:
         """Return a PNG of the whole display. ``values`` is the shim's env report."""
 
+    def after_start(self, values: dict[str, str], width: int, height: int) -> None:
+        """Finish setup once the shim has reported the display."""
+
     def input_device(self, values: dict[str, str]):
         """Return an object with apply(actions) -> int and close()."""
         from eyesol8.input import InputDevice

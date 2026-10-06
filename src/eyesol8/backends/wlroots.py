@@ -8,7 +8,14 @@ from pathlib import Path
 from Xlib import XK
 
 from eyesol8.backends.base import Backend, BackendError, require
-from eyesol8.backends.wayland_wire import BTN_LEFT, BTN_MIDDLE, BTN_RIGHT, VirtualInput
+from eyesol8.backends.wayland_wire import (
+    BTN_LEFT,
+    BTN_MIDDLE,
+    BTN_RIGHT,
+    VirtualInput,
+    WaylandError,
+    set_output_size,
+)
 
 # Make toolkits pick Wayland; this backend exists for apps that need it.
 _WAYLAND_TOOLKIT_ENV = {
@@ -25,24 +32,22 @@ class WlrootsBackend(Backend):
 
     For Wayland-native apps (GTK4, Qt 6) that will not run under Xwayland.
     Screenshots use grim (wlr-screencopy), keys use wtype, and the mouse uses
-    a built-in virtual pointer client (see wayland_wire). The output is cage's
-    default headless size, 1280x720; cage stretches the app to fill it.
+    a built-in virtual pointer client (see wayland_wire). cage's headless
+    output starts at 1280x720 and is then given the requested size through
+    wlr-output-management; cage stretches the app to fill it.
     """
 
     name = "wlroots"
     required_env = ("WAYLAND_DISPLAY",)
-    width = 1280
-    height = 720
+    default_size = (1280, 720)
 
     def launch(self, shim_argv, *, cwd, env, width, height, session_dir: Path) -> None:
         cage = require("cage")
         for tool in ("grim", "wtype"):
             require(tool)
-        if (width, height) != (self.width, self.height):
-            raise ValueError(
-                f"the wlroots backend only supports {self.width}x{self.height}, "
-                f"got {width}x{height}"
-            )
+        if width <= 0 or height <= 0:
+            raise ValueError(f"size must be positive, got {width}x{height}")
+        self.width, self.height = self.default_size
         # A private runtime dir keeps cage's socket away from the host's
         # wayland-0. Unix socket paths must stay under 108 bytes.
         self.runtime_dir = session_dir / "run"
@@ -69,6 +74,15 @@ class WlrootsBackend(Backend):
                     start_new_session=True,
                 )
             ]
+
+    def after_start(self, values, width, height):
+        if (width, height) == (self.width, self.height):
+            return
+        try:
+            set_output_size(self.runtime_dir, values["WAYLAND_DISPLAY"], width, height)
+        except (OSError, WaylandError) as e:
+            raise BackendError(f"could not set the cage output to {width}x{height}: {e}") from None
+        self.width, self.height = width, height
 
     def _tool_env(self, values: dict[str, str]) -> dict[str, str]:
         return {

@@ -173,6 +173,11 @@ class Session:
         if missing:
             self.stop(grace_seconds=0)
             raise SessionStartError(f"{backend} did not provide {', '.join(missing)}: {values}")
+        try:
+            display_backend.after_start(values, width, height)
+        except Exception:
+            self.stop(grace_seconds=0)
+            raise
         return self
 
     def _read_env_file(self, timeout: float) -> dict[str, str]:

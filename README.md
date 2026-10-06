@@ -26,8 +26,9 @@ Design doc: https://claude.ai/code/artifact/6a92e49f-d9e5-46ce-a4a5-87675ff655a6
   [cage](https://github.com/cage-kiosk/cage) compositor, for Wayland-native
   apps (GTK4, Qt 6) that will not run under Xwayland. It sets `GDK_BACKEND`,
   `QT_QPA_PLATFORM` and `SDL_VIDEODRIVER` to Wayland and gives cage a private
-  `XDG_RUNTIME_DIR`. The display is fixed at 1280x720 (cage fills it with the
-  app). Screenshots use `grim`, keys and text use `wtype`, and the mouse uses
+  `XDG_RUNTIME_DIR`. cage's headless output starts at 1280x720 and Eyesol8
+  then sets the requested size through wlr-output-management (cage fills the
+  output with the app). Screenshots use `grim`, keys and text use `wtype`, and the mouse uses
   a small built-in Wayland client that keeps one virtual pointer and keyboard
   connected for the whole session; tools that connect per action make the
   compositor drop and re-add the seat's pointer, and the app then ignores the
