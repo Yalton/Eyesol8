@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "Eyesol8",
+  "project_id": "dc2d51ca-1f05-409f-8c4f-6aea0631cb24"
+}
