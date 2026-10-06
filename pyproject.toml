@@ -1,0 +1,26 @@
+[project]
+name = "eyesol8"
+version = "0.1.0"
+description = "MCP server that runs programs in a private headless display and lets agents screenshot and drive them"
+readme = "README.md"
+authors = [
+    { name = "DaltonBailey", email = "drbailey117@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=2.3.0",
+    "pillow>=12.3.0",
+    "python-xlib>=0.33",
+]
+
+[project.scripts]
+eyesol8 = "eyesol8.server:main"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

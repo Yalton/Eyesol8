@@ -60,18 +60,16 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+uv sync
+uv run pytest            # integration tests need gamescope + godot on PATH
 ```
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+Python MCP server (package `src/eyesol8/`). Each session = one `gamescope --backend headless --xwayland-count 1` process running one child program, isolated from the host desktop (unset WAYLAND_DISPLAY/WAYLAND_SOCKET, never forward host DISPLAY). Screenshots: `gamescopectl screenshot` with the session's GAMESCOPE_WAYLAND_DISPLAY (X11 grabs return black). Input: XTEST via python-xlib on the session's Xwayland DISPLAY. Integration fixture: `tests/fixtures/godot_scene/` (see README). Design doc: https://claude.ai/code/artifact/6a92e49f-d9e5-46ce-a4a5-87675ff655a6
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- Never fall back to the host display. Missing dependency = clear error naming it.
+- Tests that launch gamescope/godot must clean up every process they start (check with pgrep in teardown).

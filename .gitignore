@@ -11,3 +11,7 @@ tests/fixtures/godot_scene/.godot/
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+
+# Local agent and editor tooling
+.claude/
+.serena/
