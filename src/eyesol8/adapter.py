@@ -1,6 +1,7 @@
 """Client for an in-process engine adapter, e.g. adapters/godot.
 
-The adapter listens on 127.0.0.1:$EYESOL8_ADAPTER_PORT and speaks
+The adapter listens on 127.0.0.1:$EYESOL8_ADAPTER_PORT (0 means "pick a free
+port") and prints LISTENING_PREFIX + the port it got. It speaks
 newline-delimited JSON. The first line must be {"hello": token}; then each
 request {"id", "cmd", "args"} gets a reply {"id", "ok", "result" | "error"}.
 See README.md for the commands.
@@ -11,24 +12,21 @@ from __future__ import annotations
 import base64
 import itertools
 import json
+import re
 import secrets
 import socket
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 PORT_ENV = "EYESOL8_ADAPTER_PORT"
 TOKEN_ENV = "EYESOL8_ADAPTER_TOKEN"
+LISTENING_RE = re.compile(r"^EYESOL8_ADAPTER listening on 127\.0\.0\.1:(\d+)$")
 
 
 class AdapterError(RuntimeError):
     pass
-
-
-def free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 def new_token() -> str:
@@ -36,11 +34,21 @@ def new_token() -> str:
 
 
 class AdapterClient:
-    """One connection to an adapter, opened on first use."""
+    """One connection to an adapter, opened on first use.
 
-    def __init__(self, port: int, token: str) -> None:
+    Pass ``port`` when it is known, or ``find_port(timeout)`` to learn it on
+    first use (it raises TimeoutError if no adapter reports one).
+    """
+
+    def __init__(
+        self,
+        token: str,
+        port: int | None = None,
+        find_port: Callable[[float], int] | None = None,
+    ) -> None:
         self.port = port
         self.token = token
+        self._find_port = find_port
         self._sock: socket.socket | None = None
         self._file = None
         self._ids = itertools.count(1)
@@ -50,18 +58,22 @@ class AdapterClient:
         """Send one command and return its result; raise AdapterError on failure."""
         with self._lock:
             deadline = time.monotonic() + timeout
-            if self._sock is None:
-                self._connect(deadline)
             request_id = next(self._ids)
             try:
+                if self._sock is None:
+                    self._connect(deadline)
                 self._send({"id": request_id, "cmd": cmd, "args": args or {}})
                 while True:
                     reply = self._receive(deadline)
                     if reply.get("id") == request_id:
                         break
-            except (OSError, AdapterError):
+            except AdapterError:
                 self._close_locked()
                 raise
+            except (OSError, ValueError) as e:
+                # ValueError covers a reply line that is not JSON.
+                self._close_locked()
+                raise AdapterError(f"adapter connection failed: {e}") from None
         if not reply.get("ok"):
             raise AdapterError(f"adapter {cmd} failed: {reply.get('error')}")
         return reply.get("result")
@@ -75,7 +87,16 @@ class AdapterClient:
             self._close_locked()
 
     def _connect(self, deadline: float) -> None:
-        # The engine opens its listener a moment after the program starts.
+        if self.port is None:
+            try:
+                if self._find_port is None:
+                    raise TimeoutError
+                self.port = self._find_port(max(0.0, deadline - time.monotonic()))
+            except TimeoutError:
+                raise AdapterError(
+                    "no engine adapter reported a port; is the Eyesol8 adapter "
+                    "installed and enabled in the program?"
+                ) from None
         while True:
             try:
                 sock = socket.create_connection(("127.0.0.1", self.port), timeout=1)

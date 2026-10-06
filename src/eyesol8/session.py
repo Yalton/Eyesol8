@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from eyesol8 import capture
-from eyesol8.adapter import PORT_ENV, TOKEN_ENV, AdapterClient, free_port, new_token
+from eyesol8.adapter import LISTENING_RE, PORT_ENV, TOKEN_ENV, AdapterClient, new_token
 from eyesol8.input import InputDevice
 
 DEFAULT_LOG_LINES = 10_000
@@ -128,8 +128,9 @@ class Session:
             child_env.pop(key, None)
         if mute_audio:
             child_env.update(_MUTED_AUDIO_ENV)
-        self.adapter = AdapterClient(free_port(), new_token())
-        child_env[PORT_ENV] = str(self.adapter.port)
+        self.adapter = AdapterClient(new_token(), find_port=self._wait_adapter_port)
+        # The adapter binds port 0 and prints the port it got; see _append_log.
+        child_env[PORT_ENV] = "0"
         child_env[TOKEN_ENV] = self.adapter.token
         if env:
             child_env.update(env)
@@ -211,12 +212,25 @@ class Session:
         self._log_cursor = 0
         self._log_cond = threading.Condition()
         self._log_file = None
+        self._adapter_port: int | None = None
 
     def _append_log(self, line: str) -> None:
         with self._log_cond:
             self._log_cursor += 1
             self._log_lines.append((self._log_cursor, line))
+            # Caught here rather than searched for later, so a chatty program
+            # cannot push the line out of the ring buffer first.
+            if self._adapter_port is None and line.startswith("EYESOL8_ADAPTER"):
+                match = LISTENING_RE.match(line)
+                if match:
+                    self._adapter_port = int(match.group(1))
             self._log_cond.notify_all()
+
+    def _wait_adapter_port(self, timeout: float) -> int:
+        with self._log_cond:
+            if not self._log_cond.wait_for(lambda: self._adapter_port is not None, timeout):
+                raise TimeoutError
+            return self._adapter_port
 
     def _read_output(self, fifo: Path) -> None:
         # Blocks until the shim opens the FIFO for writing; ends at EOF when

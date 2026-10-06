@@ -1,7 +1,8 @@
 # Eyesol8 adapter autoload. Does nothing unless EYESOL8_ADAPTER_PORT is set.
 #
-# Protocol: newline-delimited JSON over TCP on 127.0.0.1:$EYESOL8_ADAPTER_PORT,
-# one client at a time. The client's first line must be
+# Protocol: newline-delimited JSON over TCP on 127.0.0.1:$EYESOL8_ADAPTER_PORT
+# (0 picks a free port), one client at a time. Once listening it prints
+# "EYESOL8_ADAPTER listening on 127.0.0.1:<port>" with the actual port. The client's first line must be
 # {"hello": "<EYESOL8_ADAPTER_TOKEN>"}; the reply is {"ok": true, "engine": ...}.
 # After that each request {"id": n, "cmd": "...", "args": {...}} gets one reply
 # {"id": n, "ok": true, "result": ...} or {"id": n, "ok": false, "error": "..."}.
@@ -28,10 +29,15 @@ func _ready() -> void:
 		push_error("Eyesol8 adapter could not listen on port %s: %s" % [port, error_string(err)])
 		set_process(false)
 		return
-	print("EYESOL8_ADAPTER listening on 127.0.0.1:%s" % port)
+	print("EYESOL8_ADAPTER listening on 127.0.0.1:%d" % _server.get_local_port())
 
 
 func _process(_delta: float) -> void:
+	# Notice a dropped client before deciding whether a new one may connect.
+	if _peer != null:
+		_peer.poll()
+		if _peer.get_status() != StreamPeerTCP.STATUS_CONNECTED:
+			_peer = null
 	if _server.is_connection_available():
 		var incoming := _server.take_connection()
 		if _peer == null or _peer.get_status() != StreamPeerTCP.STATUS_CONNECTED:

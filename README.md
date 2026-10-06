@@ -55,8 +55,11 @@ Eyesol8Adapter="*res://addons/eyesol8_adapter/eyesol8_adapter.gd"
 ```
 
 It does nothing unless `EYESOL8_ADAPTER_PORT` is set, so it is safe to ship.
-Every Eyesol8 session sets `EYESOL8_ADAPTER_PORT` (a free localhost port) and
-`EYESOL8_ADAPTER_TOKEN` (a random secret) for its program.
+Every Eyesol8 session sets `EYESOL8_ADAPTER_PORT=0` and
+`EYESOL8_ADAPTER_TOKEN` (a random secret) for its program. Port 0 makes the
+add-on pick a free port itself; it then prints
+`EYESOL8_ADAPTER listening on 127.0.0.1:<port>`, which Eyesol8 reads from the
+program's output.
 
 Agents use it through `display_query(session_id, cmd, args)` and
 `display_screenshot(..., source="engine")`.

@@ -78,12 +78,19 @@ def test_action_frame_wait_time_scale(godot):
 def test_wrong_token_is_rejected(godot):
     from eyesol8.adapter import AdapterClient
 
-    intruder = AdapterClient(godot.adapter.port, "wrong")
-    try:
-        with pytest.raises(AdapterError):
-            intruder.request("tree", timeout=5)
-    finally:
-        intruder.close()
+    godot.query("tree", {"max_depth": 0})
+    port = godot.adapter.port
+    # While the session's client is connected, a second client is turned away.
+    second = AdapterClient(godot.adapter.token, port=port)
+    with pytest.raises(AdapterError):
+        second.request("tree", timeout=5)
+    second.close()
+
+    godot.adapter.close()
+    intruder = AdapterClient("wrong", port=port)
+    with pytest.raises(AdapterError, match="bad hello"):
+        intruder.request("tree", timeout=5)
+    intruder.close()
     assert godot.query("tree", {"max_depth": 0})
 
 
@@ -91,8 +98,32 @@ def test_wrong_token_is_rejected(godot):
 def test_query_without_adapter_fails_clearly(no_leaks):
     s = Session.start(["sleep", "60"])
     try:
-        with pytest.raises(AdapterError, match="no engine adapter"):
+        with pytest.raises(AdapterError, match="no engine adapter reported a port"):
             s.query("tree", timeout=1)
     finally:
         s.stop()
     assert os.environ.get("EYESOL8_ADAPTER_PORT") is None
+
+
+@needs_gamescope
+@needs_godot
+def test_adapter_picks_its_own_port(godot):
+    godot.query("tree", {"max_depth": 0})
+    port = godot.adapter.port
+    assert port and port > 0
+    lines, _ = godot.logs(grep=r"^EYESOL8_ADAPTER listening")
+    assert lines == [f"EYESOL8_ADAPTER listening on 127.0.0.1:{port}"]
+
+
+def test_port_line_is_caught_even_after_ring_buffer_evicts_it():
+    s = Session.__new__(Session)
+    s._init_log_buffer(max_lines=2)
+    s._append_log("EYESOL8_ADAPTER listening on 127.0.0.1:43210")
+    for i in range(5):
+        s._append_log(f"spam {i}")
+    assert s._wait_adapter_port(timeout=0) == 43210
+    t = Session.__new__(Session)
+    t._init_log_buffer(max_lines=2)
+    t._append_log("EYESOL8_ADAPTER listening on 127.0.0.1:not-a-port")
+    with pytest.raises(TimeoutError):
+        t._wait_adapter_port(timeout=0.1)
