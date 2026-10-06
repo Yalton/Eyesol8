@@ -1,5 +1,7 @@
 import os
+import tempfile
 import time
+from pathlib import Path
 
 import pytest
 from conftest import (
@@ -106,3 +108,11 @@ def test_wait_for_frame_times_out_without_a_window(no_leaks):
             s.wait_for_frame(timeout=1)
     finally:
         s.stop()
+
+
+@needs_gamescope
+def test_bad_cwd_raises_and_cleans_up(no_leaks, tmp_path):
+    before = set(Path(tempfile.gettempdir()).glob("eyesol8-*"))
+    with pytest.raises(FileNotFoundError):
+        Session.start(["true"], cwd=tmp_path / "missing")
+    assert set(Path(tempfile.gettempdir()).glob("eyesol8-*")) == before

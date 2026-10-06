@@ -66,7 +66,7 @@ class InputDevice:
 
     def _plan(self, action: dict):
         if not isinstance(action, dict):
-            raise ValueError(f"action must be an object, got {action!r}")
+            raise TypeError(f"action must be an object, got {action!r}")
         kinds = [k for k in _ACTIONS if k in action]
         if len(kinds) != 1:
             raise ValueError(f"action needs exactly one of {', '.join(_ACTIONS)}: {action!r}")

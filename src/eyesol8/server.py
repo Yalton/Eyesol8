@@ -142,7 +142,7 @@ def display_input(session_id: str, actions: list[dict[str, Any]]) -> int:
     session = _session(session_id)
     try:
         count = session.input(actions)
-    except (ValueError, RuntimeError) as e:
+    except (ValueError, TypeError, RuntimeError) as e:
         raise ToolError(str(e)) from None
     _last_input[session_id] = time.monotonic()
     return count

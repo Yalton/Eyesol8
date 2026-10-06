@@ -58,5 +58,7 @@ def wait_for_scene(session, color=(255, 0, 0), timeout=SCENE_READY_SECONDS):
         if img.getpixel((5, 5)) == color:
             return img
         if time.monotonic() > deadline:
-            raise TimeoutError(f"scene not drawn within {timeout}s; pixel (5, 5) = {img.getpixel((5, 5))}")
+            raise TimeoutError(
+                f"scene not drawn within {timeout}s; pixel (5, 5) = {img.getpixel((5, 5))}"
+            )
         time.sleep(0.25)

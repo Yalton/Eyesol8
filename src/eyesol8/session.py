@@ -145,16 +145,23 @@ class Session:
             "-W", size[0], "-H", size[1], "-w", size[0], "-h", size[1],
             "--", "sh", "-c", _SHIM, "eyesol8-shim", str(self.session_dir), *command,
         ]  # fmt: skip
-        self._gamescope_log = open(self.session_dir / "gamescope.log", "wb")
-        self._proc = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            env=child_env,
-            stdin=subprocess.DEVNULL,
-            stdout=self._gamescope_log,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
+        # Gamescope keeps its own copy of the log fd; ours can close right away.
+        try:
+            with open(self.session_dir / "gamescope.log", "wb") as gamescope_log:
+                self._proc = subprocess.Popen(
+                    argv,
+                    cwd=cwd,
+                    env=child_env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=gamescope_log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+        except OSError:
+            self._unblock_reader()
+            self._reader.join(timeout=2)
+            shutil.rmtree(self.session_dir, ignore_errors=True)
+            raise
 
         try:
             values = self._read_env_file(ENV_FILE_TIMEOUT)
@@ -200,9 +207,7 @@ class Session:
     # --- logs -------------------------------------------------------------
 
     def _init_log_buffer(self, max_lines: int) -> None:
-        self._log_lines: collections.deque[tuple[int, str]] = collections.deque(
-            maxlen=max_lines
-        )
+        self._log_lines: collections.deque[tuple[int, str]] = collections.deque(maxlen=max_lines)
         self._log_cursor = 0
         self._log_cond = threading.Condition()
         self._log_file = None
@@ -331,7 +336,6 @@ class Session:
             self.adapter.close()
             self._terminate(grace_seconds)
             self._reader.join(timeout=2)
-            self._gamescope_log.close()
             exit_file = self.session_dir / "exit"
             if exit_file.exists():
                 self._exit_code = int(exit_file.read_text().strip() or -1)

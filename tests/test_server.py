@@ -72,7 +72,9 @@ def test_server_drives_godot_scene(no_leaks):
 
                 # Godot shows its grey boot splash before the scene.
                 with anyio.fail_after(40):
-                    while pixel(await call(client, "display_screenshot", {"session_id": sid}), (5, 5)) != (255, 0, 0):
+                    while pixel(
+                        await call(client, "display_screenshot", {"session_id": sid}), (5, 5)
+                    ) != (255, 0, 0):
                         await anyio.sleep(0.25)
 
                 applied = await call(
@@ -93,16 +95,16 @@ def test_server_drives_godot_scene(no_leaks):
                 )
                 paths = [n["path"] for n in tree.structured_content["result"]]
                 assert "/root/Main" in paths
-                bad = await client.call_tool(
-                    "display_query", {"session_id": sid, "cmd": "explode"}
-                )
+                bad = await client.call_tool("display_query", {"session_id": sid, "cmd": "explode"})
                 assert bad.is_error and "unknown cmd" in bad.content[0].text
 
                 waited = await call(
                     client, "display_wait", {"session_id": sid, "log_regex": r"CLICK \(100"}
                 )
                 assert "CLICK" in waited.content[0].text
-                logs = (await call(client, "display_logs", {"session_id": sid, "grep": "CLICK"})).structured_content
+                logs = (
+                    await call(client, "display_logs", {"session_id": sid, "grep": "CLICK"})
+                ).structured_content
                 assert logs["lines"] and logs["cursor"] > 0
             finally:
                 stopped = await call(client, "display_stop", {"session_id": sid})

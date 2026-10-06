@@ -43,6 +43,8 @@ def test_invalid_actions_send_nothing(no_leaks):
             s.input([{"key": "a", "click": [1, 1]}])
         with pytest.raises(ValueError):
             s.input([{"click": [1]}])
+        with pytest.raises(TypeError):
+            s.input(["a"])
         assert s.input([{"move": [10, 10]}, {"scroll": -2}, {"drag": [[1, 1], [50, 50]]}]) == 3
     finally:
         s.stop()
