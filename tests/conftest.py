@@ -1,6 +1,5 @@
 import io
 import shutil
-import subprocess
 import time
 from pathlib import Path
 
@@ -22,22 +21,38 @@ def godot_command() -> list[str]:
     return ["godot", "--audio-driver", "Dummy", "--path", str(FIXTURE)]
 
 
-def pgrep(name: str) -> set[int]:
-    out = subprocess.run(["pgrep", "-x", name], capture_output=True, text=True, check=False).stdout
-    return {int(p) for p in out.split()}
+needs_xvfb = pytest.mark.skipif(shutil.which("Xvfb") is None, reason="Xvfb not on PATH")
+
+
+def session_processes() -> dict[int, str]:
+    """PIDs of this user's processes started by any Eyesol8 session.
+
+    Matched by the EYESOL8_SESSION_ID env var rather than by name, because
+    other projects on the same machine run their own gamescope/godot/Xvfb.
+    """
+    found = {}
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit():
+            continue
+        try:
+            if b"EYESOL8_SESSION_ID=" in (proc / "environ").read_bytes():
+                found[int(proc.name)] = (proc / "comm").read_text().strip()
+        except OSError:
+            continue
+    return found
 
 
 @pytest.fixture
 def no_leaks():
-    before = {n: pgrep(n) for n in ("gamescope", "godot")}
+    before = set(session_processes())
     yield
     deadline = time.monotonic() + 5
     while True:
-        leaked = {n: pgrep(n) - before[n] for n in before}
-        if not any(leaked.values()) or time.monotonic() > deadline:
+        leaked = {pid: name for pid, name in session_processes().items() if pid not in before}
+        if not leaked or time.monotonic() > deadline:
             break
         time.sleep(0.1)
-    assert not any(leaked.values()), f"processes left behind: {leaked}"
+    assert not leaked, f"processes left behind: {leaked}"
 
 
 def screenshot_rgb(session):

@@ -8,18 +8,27 @@ Design doc: https://claude.ai/code/artifact/6a92e49f-d9e5-46ce-a4a5-87675ff655a6
 
 ## How it works
 
-- Each session is one `gamescope --backend headless --xwayland-count 1` process
-  with one child program. Host `WAYLAND_DISPLAY` / `WAYLAND_SOCKET` are unset and
-  the host `DISPLAY` is never forwarded.
+- Each session runs one program on its own display server (a backend). Host
+  `WAYLAND_DISPLAY` / `WAYLAND_SOCKET` are unset and the host `DISPLAY` is never
+  forwarded. Every process a session starts has `EYESOL8_SESSION_ID` set.
+- The default `gamescope` backend is one
+  `gamescope --backend headless --xwayland-count 1` process and needs a GPU.
 - Screenshots come from `gamescopectl screenshot <path>` with
   `GAMESCOPE_WAYLAND_DISPLAY` set to the session's socket. X11 grabs
   (`ffmpeg x11grab`, `XGetImage`) return black frames because Gamescope
   composites client buffers itself.
-- Input is XTEST (python-xlib) on the session's Xwayland `DISPLAY`.
+- The `xvfb` backend (`display_start(..., backend="xvfb")`) runs Xvfb for
+  machines without a GPU, such as CI. Programs render in software (Mesa
+  llvmpipe), so a Godot game needs `--rendering-driver opengl3`. Screenshots
+  read the X root window directly, which works because nothing composites.
+  A screenshot taken before the program draws is black, not delayed.
+- Input is XTEST (python-xlib) on the session's `DISPLAY`, for every backend.
 
 ## Requirements
 
-- Linux, `gamescope` (with `gamescopectl`)
+- Linux, `gamescope` (with `gamescopectl`) for the default backend
+- `Xvfb` for the `xvfb` backend (Fedora: `xorg-x11-server-Xvfb`, Debian/Ubuntu:
+  `xvfb`); its tests are skipped when it is missing
 - Python 3.12+, `uv`
 - Godot 4 on `PATH` as `godot` for the integration tests
 

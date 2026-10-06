@@ -71,8 +71,12 @@ def display_start(
     ready_regex: str | None = None,
     ready_seconds: float | None = None,
     ready_frame: bool = False,
+    backend: str = "gamescope",
 ) -> dict[str, Any]:
     """Start a program in its own headless display.
+
+    ``backend`` is "gamescope" (default, needs a GPU) or "xvfb" (software
+    rendering, no GPU; Godot needs --rendering-driver opengl3 there).
 
     Optionally waits before returning: ``ready_frame`` until the program has
     drawn its first frame, then ``ready_seconds``, then until a log line
@@ -80,7 +84,9 @@ def display_start(
     splash screen; games often need a second or two more before input works.
     """
     try:
-        session = registry.start(command, cwd=cwd, env=env, width=width, height=height)
+        session = registry.start(
+            command, cwd=cwd, env=env, width=width, height=height, backend=backend
+        )
     except (RuntimeError, ValueError, OSError) as e:
         raise ToolError(str(e)) from None
     try:
@@ -204,6 +210,7 @@ def display_list() -> list[dict[str, Any]]:
             "width": s.width,
             "height": s.height,
             "uptime_seconds": round(now - s.started_at, 1),
+            "backend": s.backend.name,
             "running": s.running,
         }
         for s in registry.list()

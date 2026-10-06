@@ -1,7 +1,8 @@
-"""Screenshots of a session via ``gamescopectl screenshot``.
+"""Screenshot helpers: Gamescope capture and shared crop/scale.
 
-X11 grabs (ffmpeg x11grab, XGetImage) return black frames under Gamescope,
-because Gamescope composites client buffers itself, so this asks Gamescope.
+Under Gamescope, X11 grabs (ffmpeg x11grab, XGetImage) return black frames
+because Gamescope composites client buffers itself, so gamescope_png asks
+Gamescope. Other backends capture in eyesol8.backends.
 """
 
 from __future__ import annotations
@@ -27,23 +28,11 @@ class CaptureError(RuntimeError):
     pass
 
 
-def screenshot(
-    wayland_display: str,
-    region: tuple[int, int, int, int] | None = None,
-    scale: float | None = None,
-    save_to: str | os.PathLike | None = None,
-    timeout: float = FILE_APPEAR_TIMEOUT,
-) -> bytes:
-    """Return a PNG of the Gamescope display named ``wayland_display``.
-
-    ``region`` is (x, y, w, h) in display pixels and is applied before
-    ``scale``. ``save_to`` also writes the PNG to that path.
-    """
+def gamescope_png(wayland_display: str, timeout: float = FILE_APPEAR_TIMEOUT) -> bytes:
+    """Return a full-size PNG of the Gamescope display named ``wayland_display``."""
     gamescopectl = shutil.which("gamescopectl")
     if gamescopectl is None:
         raise CaptureError("gamescopectl not found on PATH; it ships with gamescope")
-    if scale is not None and not 0 < scale <= 1:
-        raise ValueError(f"scale must be in (0, 1], got {scale}")
 
     with tempfile.TemporaryDirectory(prefix="eyesol8-shot-") as tmp:
         path = Path(tmp) / "shot.png"
@@ -62,7 +51,7 @@ def screenshot(
                 f"{(result.stderr or result.stdout).strip()}"
             )
         _wait_for_complete_file(path, timeout)
-        return postprocess(path.read_bytes(), region=region, scale=scale, save_to=save_to)
+        return path.read_bytes()
 
 
 def postprocess(

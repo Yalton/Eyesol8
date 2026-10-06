@@ -1,9 +1,9 @@
-"""Run one program inside a private headless Gamescope display.
+"""Run one program inside a private headless display.
 
-Each Session owns one ``gamescope --backend headless`` process. A small shell
-shim runs inside Gamescope, records the DISPLAY and GAMESCOPE_WAYLAND_DISPLAY
-Gamescope gave it, then runs the program with its output sent to a FIFO that
-this module reads into a ring buffer and a log file.
+Each Session owns one display server from eyesol8.backends (Gamescope by
+default, or Xvfb). A small shell shim runs inside it, records the DISPLAY (and
+GAMESCOPE_WAYLAND_DISPLAY) it was given, then runs the program with its output
+sent to a FIFO that this module reads into a ring buffer and a log file.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import os
 import re
 import shutil
 import signal
-import subprocess
 import tempfile
 import threading
 import time
@@ -23,13 +22,14 @@ from pathlib import Path
 
 from eyesol8 import capture
 from eyesol8.adapter import LISTENING_RE, PORT_ENV, TOKEN_ENV, AdapterClient, new_token
+from eyesol8.backends import Backend, MissingDependencyError, get_backend
 from eyesol8.input import InputDevice
 
 DEFAULT_LOG_LINES = 10_000
 DEFAULT_IDLE_TIMEOUT = 30 * 60
 ENV_FILE_TIMEOUT = 10.0
 
-# Runs inside Gamescope. "$1" is the session dir, the rest is the program.
+# Runs inside the display server. "$1" is the session dir, the rest is the program.
 _SHIM = r"""
 dir="$1"; shift
 "$@" > "$dir/output" 2>&1 &
@@ -48,8 +48,16 @@ _MUTED_AUDIO_ENV = {
 }
 
 
-class MissingDependencyError(RuntimeError):
-    pass
+__all__ = [
+    "MissingDependencyError",
+    "Session",
+    "SessionRegistry",
+    "SessionStartError",
+    "StopResult",
+]
+
+# Set for every process a session starts, so leaks can be traced to a session.
+SESSION_ID_ENV = "EYESOL8_SESSION_ID"
 
 
 class SessionStartError(RuntimeError):
@@ -60,15 +68,6 @@ class SessionStartError(RuntimeError):
 class StopResult:
     exit_code: int | None
     last_lines: list[str]
-
-
-def _require(binary: str) -> str:
-    path = shutil.which(binary)
-    if path is None:
-        raise MissingDependencyError(
-            f"{binary} not found on PATH; Eyesol8 needs it to run programs headlessly"
-        )
-    return path
 
 
 def _alive(pid: int) -> bool:
@@ -89,6 +88,7 @@ class Session:
     id: str
     display: str
     wayland_display: str
+    backend: Backend
     session_dir: Path
     log_path: Path
 
@@ -102,14 +102,16 @@ class Session:
         height: int = 720,
         mute_audio: bool = True,
         log_lines: int = DEFAULT_LOG_LINES,
+        backend: str = "gamescope",
     ) -> Session:
         if not command:
             raise ValueError("command must not be empty")
-        gamescope = _require("gamescope")
+        display_backend = get_backend(backend)
 
         self = cls.__new__(cls)
         self.id = uuid.uuid4().hex[:12]
         self.command = list(command)
+        self.backend = display_backend
         self.width = width
         self.height = height
         self.started_at = time.monotonic()
@@ -134,31 +136,26 @@ class Session:
         child_env[TOKEN_ENV] = self.adapter.token
         if env:
             child_env.update(env)
+        child_env[SESSION_ID_ENV] = self.id
 
         fifo = self.session_dir / "output"
         os.mkfifo(fifo)
         self._reader = threading.Thread(target=self._read_output, args=(fifo,), daemon=True)
         self._reader.start()
 
-        size = [str(width), str(height)]
-        argv = [
-            gamescope, "--backend", "headless", "--xwayland-count", "1",
-            "-W", size[0], "-H", size[1], "-w", size[0], "-h", size[1],
-            "--", "sh", "-c", _SHIM, "eyesol8-shim", str(self.session_dir), *command,
-        ]  # fmt: skip
-        # Gamescope keeps its own copy of the log fd; ours can close right away.
+        shim_argv = ["sh", "-c", _SHIM, "eyesol8-shim", str(self.session_dir), *command]
         try:
-            with open(self.session_dir / "gamescope.log", "wb") as gamescope_log:
-                self._proc = subprocess.Popen(
-                    argv,
-                    cwd=cwd,
-                    env=child_env,
-                    stdin=subprocess.DEVNULL,
-                    stdout=gamescope_log,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True,
-                )
-        except OSError:
+            display_backend.launch(
+                shim_argv,
+                cwd=cwd,
+                env=child_env,
+                width=width,
+                height=height,
+                session_dir=self.session_dir,
+            )
+        except Exception:
+            if display_backend.procs:
+                self._kill_backend()
             self._unblock_reader()
             self._reader.join(timeout=2)
             shutil.rmtree(self.session_dir, ignore_errors=True)
@@ -169,27 +166,29 @@ class Session:
         except Exception:
             self.stop(grace_seconds=0)
             raise
+        self._display_values = values
         self.display = values["DISPLAY"]
-        self.wayland_display = values["GAMESCOPE_WAYLAND_DISPLAY"]
+        self.wayland_display = values.get("GAMESCOPE_WAYLAND_DISPLAY", "")
         self._child_pid = int(values["PID"])
-        if not self.display or not self.wayland_display:
+        missing = [k for k in display_backend.required_env if not values.get(k)]
+        if missing:
             self.stop(grace_seconds=0)
-            raise SessionStartError(f"gamescope did not provide a display: {values}")
+            raise SessionStartError(f"{backend} did not provide {', '.join(missing)}: {values}")
         return self
 
     def _read_env_file(self, timeout: float) -> dict[str, str]:
         path = self.session_dir / "env"
         deadline = time.monotonic() + timeout
         while not path.exists():
-            if self._proc.poll() is not None:
+            if not self.backend.alive():
                 raise SessionStartError(
-                    f"gamescope exited with code {self._proc.returncode} before the "
-                    f"program started:\n{self._gamescope_tail()}"
+                    f"{self.backend.name} exited before the program started:\n"
+                    f"{self.backend.log_tail()}"
                 )
             if time.monotonic() > deadline:
                 raise SessionStartError(
-                    f"gamescope did not report its display within {timeout}s:\n"
-                    f"{self._gamescope_tail()}"
+                    f"{self.backend.name} did not report its display within {timeout}s:\n"
+                    f"{self.backend.log_tail()}"
                 )
             time.sleep(0.05)
         values = {}
@@ -197,13 +196,6 @@ class Session:
             key, _, value = line.partition("=")
             values[key] = value
         return values
-
-    def _gamescope_tail(self, n: int = 20) -> str:
-        try:
-            text = (self.session_dir / "gamescope.log").read_text(errors="replace")
-        except OSError:
-            return ""
-        return "\n".join(text.splitlines()[-n:])
 
     # --- logs -------------------------------------------------------------
 
@@ -288,8 +280,10 @@ class Session:
         timeout: float = capture.FILE_APPEAR_TIMEOUT,
         source: str = "compositor",
     ) -> bytes:
-        """Return a PNG of the session's display; see eyesol8.capture.screenshot.
+        """Return a PNG of the session's display.
 
+        ``region`` is (x, y, w, h) in display pixels and is applied before
+        ``scale`` in (0, 1]; ``save_to`` also writes the PNG there.
         ``source="engine"`` asks the in-process engine adapter for the game's
         own viewport instead of the composited display.
         """
@@ -299,9 +293,8 @@ class Session:
             return capture.postprocess(png, region=region, scale=scale, save_to=save_to)
         if source != "compositor":
             raise ValueError(f"source must be 'compositor' or 'engine', got {source!r}")
-        return capture.screenshot(
-            self.wayland_display, region=region, scale=scale, save_to=save_to, timeout=timeout
-        )
+        png = self.backend.screenshot(self._display_values, timeout)
+        return capture.postprocess(png, region=region, scale=scale, save_to=save_to)
 
     def query(self, cmd: str, args: dict | None = None, timeout: float = 10.0):
         """Send one command to the engine adapter and return its result."""
@@ -320,12 +313,12 @@ class Session:
 
     @property
     def pid(self) -> int | None:
-        """PID of the program inside Gamescope."""
+        """PID of the program inside the display server."""
         return self._child_pid
 
     @property
     def running(self) -> bool:
-        return not self._stopped and self._proc.poll() is None
+        return not self._stopped and self.backend.alive()
 
     def touch(self) -> None:
         self.last_activity = time.monotonic()
@@ -336,11 +329,13 @@ class Session:
         This means a window is up, not that the program is ready for input:
         a game may still be showing a splash screen.
         """
-        # Gamescope queues the request until it composites a frame.
-        return self.screenshot(timeout=timeout)
+        # Gamescope queues the request until it composites a frame; Xvfb
+        # answers at once, so there it can return a blank frame.
+        self.touch()
+        return self.backend.wait_for_frame(self._display_values, timeout)
 
     def stop(self, grace_seconds: float = 3.0) -> StopResult:
-        """Stop the program and Gamescope; return the exit code and last log lines."""
+        """Stop the program and its display server; return the exit code and last log lines."""
         if not self._stopped:
             self._stopped = True
             with self._input_lock:
@@ -372,26 +367,30 @@ class Session:
         while (
             pid is not None
             and not (self.session_dir / "exit").exists()
-            and self._proc.poll() is None
+            and self.backend.main.poll() is None
             and time.monotonic() < deadline
         ):
             time.sleep(0.02)
 
-        try:
-            os.killpg(self._proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        self._kill_backend()
         if pid is not None and _alive(pid):
-            # The program may have left Gamescope's process group.
+            # The program may have left the display server's process group.
             try:
                 os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-        # Gamescope can outlive its child; kill it explicitly.
-        if self._proc.poll() is None:
-            self._proc.kill()
-        self._proc.wait(timeout=5)
         self._unblock_reader()
+
+    def _kill_backend(self) -> None:
+        try:
+            os.killpg(self.backend.pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        # Display servers can outlive their child; kill each one explicitly.
+        for proc in self.backend.procs:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=5)
 
     def _unblock_reader(self) -> None:
         # If the shim never opened the FIFO, the reader is stuck in open().
