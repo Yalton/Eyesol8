@@ -133,3 +133,7 @@ uv run pytest
 ```
 
 Work is tracked in beads (`bd ready`).
+
+## License
+
+Eyesol8 is available under the [MIT License](LICENSE).
