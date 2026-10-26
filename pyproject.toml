@@ -3,6 +3,8 @@ name = "eyesol8"
 version = "0.1.0"
 description = "MCP server that runs programs in a private headless display and lets agents screenshot and drive them"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "DaltonBailey", email = "drbailey117@gmail.com" }
 ]
