@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import pytest
 from pathlib import Path
 
 import anyio
@@ -8,6 +9,8 @@ from conftest import FIXTURE, needs_gamescope, needs_godot
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 from PIL import Image
+
+from eyesol8.server import _default_backend
 
 REPO = Path(__file__).parent.parent
 TOOLS = {
@@ -123,3 +126,25 @@ def test_server_stops_sessions_on_exit(no_leaks):
             await call(client, "display_start", {"command": ["sleep", "60"]})
 
     anyio.run(run)
+
+
+def test_default_backend_valid(monkeypatch):
+    monkeypatch.setenv("EYESOL8_DEFAULT_BACKEND", "xvfb")
+    assert _default_backend() == "xvfb"
+
+
+def test_default_backend_unset(monkeypatch):
+    monkeypatch.delenv("EYESOL8_DEFAULT_BACKEND", raising=True)
+    assert _default_backend() == "gamescope"
+
+
+def test_default_backend_empty(monkeypatch):
+    monkeypatch.setenv("EYESOL8_DEFAULT_BACKEND", "   ")
+    assert _default_backend() == "gamescope"
+
+
+def test_default_backend_invalid(monkeypatch):
+    monkeypatch.setenv("EYESOL8_DEFAULT_BACKEND", "tcx")
+    with pytest.raises(ValueError) as exc:
+        _default_backend()
+    assert "gamescope" in str(exc.value)

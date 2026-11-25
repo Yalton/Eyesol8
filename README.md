@@ -12,7 +12,10 @@ Design doc: https://claude.ai/code/artifact/6a92e49f-d9e5-46ce-a4a5-87675ff655a6
   `WAYLAND_DISPLAY` / `WAYLAND_SOCKET` are unset and the host `DISPLAY` is never
   forwarded. Every process a session starts has `EYESOL8_SESSION_ID` set.
 - The default `gamescope` backend is one
-  `gamescope --backend headless --xwayland-count 1` process and needs a GPU.
+  `gamescope --backend headless --xwayland-count 1` process and needs a GPU. It
+  is chosen from `EYESOL8_DEFAULT_BACKEND` when `display_start` is called
+  without a `backend`; unset or empty values default to `gamescope`, and any
+  key in `eyesol8.backends.BACKENDS` may be set there.
 - Screenshots come from `gamescopectl screenshot <path>` with
   `GAMESCOPE_WAYLAND_DISPLAY` set to the session's socket. X11 grabs
   (`ffmpeg x11grab`, `XGetImage`) return black frames because Gamescope
@@ -56,8 +59,10 @@ claude mcp add eyesol8 -- uv run --directory /path/to/Eyesol8 eyesol8
 
 Tools:
 
-- `display_start(command, cwd, env, width, height, ready_regex, ready_seconds)`
-  starts a program in its own headless display and returns `session_id`.
+- `display_start(command, cwd, env, width, height, ready_regex, ready_seconds, backend)`
+  starts a program in its own headless display and returns `session_id`. With
+  `backend` unset it uses `EYESOL8_DEFAULT_BACKEND` (gamescope), any key in
+  `eyesol8.backends.BACKENDS`; a supplied value is used as-is.
 - `display_screenshot(session_id, region, scale, save_to)` returns a PNG.
 - `display_input(session_id, actions)` sends keys, text, mouse moves, clicks,
   drags and scrolls, e.g. `[{"key": "ctrl+s"}, {"click": [100, 100]}]`.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -12,6 +13,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.types import Image
 
 from eyesol8.adapter import AdapterError
+from eyesol8.backends import BACKENDS
 from eyesol8.session import Session, SessionRegistry
 
 # One frame at 30 fps: lets the program draw the result of the latest input.
@@ -35,7 +37,8 @@ mcp = MCPServer(
     instructions=(
         "Run a program in a private headless display, then screenshot it and "
         "drive it with keyboard and mouse input. Start with display_start, and "
-        "always display_stop sessions you no longer need."
+        "always display_stop sessions you no longer need. The default backend is "
+        "gamescope, overridden by the EYESOL8_DEFAULT_BACKEND env var."
     ),
     lifespan=_lifespan,
 )
@@ -61,6 +64,24 @@ def _wait(session: Session, log_regex: str | None, seconds: float | None, timeou
         raise ToolError(str(e)) from None
 
 
+def _default_backend() -> str:
+    """The backend ``display_start`` uses when called without one.
+
+    Reads ``EYESOL8_DEFAULT_BACKEND``; unset or empty values default to
+    ``gamescope``, and an invalid value raises, listing the valid keys in
+    ``eyesol8.backends.BACKENDS``.
+    """
+    name = os.environ.get("EYESOL8_DEFAULT_BACKEND", "").strip()
+    if not name:
+        return "gamescope"
+    if name not in BACKENDS:
+        raise ValueError(
+            f"unknown default backend {name!r}; set EYESOL8_DEFAULT_BACKEND to one of "
+            f"{', '.join(BACKENDS)}"
+        ) from None
+    return name
+
+
 @mcp.tool()
 def display_start(
     command: list[str],
@@ -71,22 +92,25 @@ def display_start(
     ready_regex: str | None = None,
     ready_seconds: float | None = None,
     ready_frame: bool = False,
-    backend: str = "gamescope",
+    backend: str | None = None,
 ) -> dict[str, Any]:
     """Start a program in its own headless display.
 
-    ``backend`` is "gamescope" (default, needs a GPU), "xvfb" (software
-    rendering, no GPU; Godot needs --rendering-driver opengl3 there) or
-    "wlroots" (headless cage for Wayland-only apps such as GTK4).
+    ``backend`` defaults to ``EYESOL8_DEFAULT_BACKEND`` (gamescope), which may
+    be set to any key in ``eyesol8.backends.BACKENDS``; a supplied value is
+    used as-is. Valid backends are "gamescope" (default, needs a GPU), "xvfb"
+    (software rendering, no GPU; Godot needs --rendering-driver opengl3 there)
+    or "wlroots" (headless cage for Wayland-native apps such as GTK4).
 
     Optionally waits before returning: ``ready_frame`` until the program has
     drawn its first frame, then ``ready_seconds``, then until a log line
     matches ``ready_regex`` (30s timeout each). A first frame may still be a
     splash screen; games often need a second or two more before input works.
     """
+    resolved = backend if backend else _default_backend()
     try:
         session = registry.start(
-            command, cwd=cwd, env=env, width=width, height=height, backend=backend
+            command, cwd=cwd, env=env, width=width, height=height, backend=resolved
         )
     except (RuntimeError, ValueError, OSError) as e:
         raise ToolError(str(e)) from None
@@ -231,6 +255,7 @@ def display_stop(session_id: str, grace_seconds: float = 3) -> dict[str, Any]:
 
 def main() -> None:
     try:
+        _default_backend()  # validate the configured default before we start
         mcp.run("stdio")
     finally:
         registry.shutdown()
